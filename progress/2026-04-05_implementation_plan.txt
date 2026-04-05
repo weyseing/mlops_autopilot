@@ -1,57 +1,56 @@
-Implementation Plan - Source Files
-==================================
+MLOps Autopilot - Implementation Progress (2026-04-05)
+======================================================
 
-Dataset: California Housing (built into scikit-learn, 20K samples, 8 features)
+Dataset: California Housing (sklearn built-in, 20K samples, 8 features)
 Model:   RandomForestRegressor
 
 
-Step 0: Infrastructure Fix
---------------------------
-- Add ./data:/app/data volume mount to app + retrain services
-- Fix .env: SAGEMAKER_MAX_WAIT=600 → 7200 (must be >= MAX_RUN for spot)
+[DONE] Step 0: Infrastructure Fix
+----------------------------------
+- Added ./data:/app/data volume mount to app + retrain services
+- Fixed .env: SAGEMAKER_MAX_WAIT=7200 (must be >= MAX_RUN for spot)
 
 
-Step 1: src/train.py
---------------------
-- Load California Housing from sklearn
-- Train RandomForest (n_estimators=100, max_depth=10)
-- Save data/raw/california_housing.csv + data/processed/reference.csv
-- Log params + metrics (RMSE, MAE, R2) to MLflow
-- Register model → promote to Production
-- Test: docker compose run --rm app train
+[DONE] Step 1: src/train.py
+----------------------------
+- Loads California Housing, trains RandomForest (100 trees, max_depth=10)
+- Saves data/raw/california_housing.csv + data/processed/reference.csv
+- Logs params + metrics to MLflow, registers model as Production
+- Result: RMSE=0.5445, MAE=0.3663, R2=0.7737
+- Run: docker compose run --rm app train
 
 
-Step 2: src/serve.py
---------------------
-- Load Production model from MLflow on startup
-- POST /predict  → {"features": {"MedInc": 3.5, ...}} → prediction
-- POST /predict/batch → multiple instances
-- Log inputs to data/live/YYYY-MM-DD.csv
-- Test: curl -X POST localhost:8000/predict ...
+[DONE] Step 2: src/serve.py
+----------------------------
+- Loads Production model from MLflow on startup
+- POST /predict  → single prediction
+- POST /predict/batch → batch predictions
+- Logs inputs to data/live/YYYY-MM-DD.csv for drift detection
+- Test script: python3 test/test_inference.py (5/5 passed)
+- Run: docker compose up -d (auto-starts with hot reload)
 
 
-Step 3: src/monitor.py
-----------------------
-- Load data/processed/reference.csv (training data)
-- Load data/live/*.csv (prediction inputs)
+[TODO] Step 3: src/monitor.py
+------------------------------
+- Load data/processed/reference.csv vs data/live/*.csv
 - Evidently Report with DataDriftPreset
 - Compare drift_share vs DRIFT_THRESHOLD (0.15)
 - Exit 1 = drift, Exit 0 = no drift
-- Test: docker compose run --rm app monitor
+- Run: docker compose run --rm app monitor
 
 
-Step 4: src/retrain.py
-----------------------
+[TODO] Step 4: src/retrain.py
+------------------------------
 - Upload training data to S3 (SageMaker default bucket)
-- Launch SageMaker SKLearn estimator (spot instances)
+- Launch SageMaker SKLearn estimator (spot instances, ~$0.05)
 - Download model → evaluate → log to MLflow
 - Promote only if RMSE beats current Production model
-- Uses boto3.Session(profile_name="mlops_autopilot") to avoid MinIO cred conflict
-- Test: docker compose run --rm retrain (~$0.05)
+- Uses boto3.Session(profile_name="mlops_autopilot") for real AWS creds
+- Run: docker compose run --rm retrain
 
 
-Verification
-------------
+Verification (end-to-end)
+-------------------------
 docker compose run --rm app train         # 1. train
 docker compose restart app                # 2. reload model
 curl localhost:8000/predict -X POST ...   # 3. send predictions
