@@ -1,64 +1,37 @@
 # mlops_autopilot
 
-End-to-end MLOps pipeline with automated drift detection and model retraining.
+End-to-end MLOps pipeline: train, serve, detect drift, retrain on SageMaker.
 
-## Project Structure
-
-```
-mlops_autopilot/
-├── data/               # Raw and processed datasets
-├── notebooks/          # Exploratory analysis
-├── src/
-│   ├── train.py        # Model training + MLflow logging
-│   ├── serve.py        # FastAPI inference endpoint
-│   ├── monitor.py      # Drift detection (Evidently)
-│   └── retrain.py      # Auto-retraining trigger
-├── pipelines/          # SageMaker Pipeline definitions
-├── .github/workflows/  # CI/CD via GitHub Actions
-├── Dockerfile
-└── requirements.txt
-```
-
-## Tech Stack
-
-- **ML tracking**: MLflow
-- **Serving**: FastAPI + Docker + AWS ECR/ECS
-- **Drift detection**: Evidently AI
-- **Retraining pipeline**: SageMaker Pipelines
-- **CI/CD**: GitHub Actions
-
-## Commands
+## Structure
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Train model
-python src/train.py
-
-# Run inference server locally
-uvicorn src.serve:app --reload
-
-# Run drift check
-python src/monitor.py
-
-# Trigger retraining manually
-python src/retrain.py
+src/
+├── train.py              # Train RandomForest + register in MLflow
+├── serve.py              # FastAPI /predict endpoint + log live data
+├── monitor.py            # Evidently drift detection (reference vs live)
+└── retrain.py            # SageMaker spot training + MLflow promotion
+pipelines/
+└── train_script.py       # Standalone script SageMaker runs
 ```
 
-## How It Works
+## Commands (Docker)
 
-1. Model is trained and registered in MLflow Model Registry
-2. FastAPI endpoint serves predictions and logs incoming data
-3. Drift monitor runs on a schedule comparing live data vs training distribution
-4. If drift score exceeds threshold, retraining is triggered automatically
-5. New model is evaluated — promoted to production only if it beats current model
-
-## Environment Variables
-
+```bash
+docker compose up -d                      # Start stack (MLflow, MinIO, Postgres, API)
+docker compose run --rm app train         # Train + register model
+docker compose restart app                # Reload model in serving
+docker compose run --rm app monitor       # Check drift (exit 1 = drifted)
+docker compose run --rm retrain           # Retrain via SageMaker
 ```
-MLFLOW_TRACKING_URI=
-AWS_REGION=
-ECR_REPOSITORY=
-DRIFT_THRESHOLD=0.15
-```
+
+## Flow
+
+train → serve (logs live data) → monitor (Evidently) → retrain (SageMaker) → promote if RMSE improves
+
+## Tech
+
+- **ML tracking**: MLflow (Postgres + MinIO)
+- **Serving**: FastAPI + Docker
+- **Drift detection**: Evidently AI (Wasserstein / K-S auto-selected)
+- **Retraining**: SageMaker SKLearn estimator (spot instances)
+- **sklearn pinned to 1.2.1** to match SageMaker container

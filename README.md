@@ -17,3 +17,16 @@ aws_secret_access_key = O6li*************
 ```bash
 SAGEMAKER_ROLE_ARN=     # SageMaker Role
 ```
+
+# Quick Start
+
+```bash
+docker compose up -d                      # Start stack
+docker compose run --rm app train         # Train model
+curl -X POST localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"features": [3.5, 25, 5, 1, 1500, 3, 37, -122]}'
+docker compose run --rm app monitor       # Check drift
+docker compose run --rm retrain           # Retrain via SageMaker
+```
+
