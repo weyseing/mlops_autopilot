@@ -1,0 +1,59 @@
+Implementation Plan - Source Files
+==================================
+
+Dataset: California Housing (built into scikit-learn, 20K samples, 8 features)
+Model:   RandomForestRegressor
+
+
+Step 0: Infrastructure Fix
+--------------------------
+- Add ./data:/app/data volume mount to app + retrain services
+- Fix .env: SAGEMAKER_MAX_WAIT=600 → 7200 (must be >= MAX_RUN for spot)
+
+
+Step 1: src/train.py
+--------------------
+- Load California Housing from sklearn
+- Train RandomForest (n_estimators=100, max_depth=10)
+- Save data/raw/california_housing.csv + data/processed/reference.csv
+- Log params + metrics (RMSE, MAE, R2) to MLflow
+- Register model → promote to Production
+- Test: docker compose run --rm app train
+
+
+Step 2: src/serve.py
+--------------------
+- Load Production model from MLflow on startup
+- POST /predict  → {"features": {"MedInc": 3.5, ...}} → prediction
+- POST /predict/batch → multiple instances
+- Log inputs to data/live/YYYY-MM-DD.csv
+- Test: curl -X POST localhost:8000/predict ...
+
+
+Step 3: src/monitor.py
+----------------------
+- Load data/processed/reference.csv (training data)
+- Load data/live/*.csv (prediction inputs)
+- Evidently Report with DataDriftPreset
+- Compare drift_share vs DRIFT_THRESHOLD (0.15)
+- Exit 1 = drift, Exit 0 = no drift
+- Test: docker compose run --rm app monitor
+
+
+Step 4: src/retrain.py
+----------------------
+- Upload training data to S3 (SageMaker default bucket)
+- Launch SageMaker SKLearn estimator (spot instances)
+- Download model → evaluate → log to MLflow
+- Promote only if RMSE beats current Production model
+- Uses boto3.Session(profile_name="mlops_autopilot") to avoid MinIO cred conflict
+- Test: docker compose run --rm retrain (~$0.05)
+
+
+Verification
+------------
+docker compose run --rm app train         # 1. train
+docker compose restart app                # 2. reload model
+curl localhost:8000/predict -X POST ...   # 3. send predictions
+docker compose run --rm app monitor       # 4. check drift
+docker compose run --rm retrain           # 5. retrain via SageMaker
